@@ -1,0 +1,203 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "resources": [
+            {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2020-06-01",
+      "name": "RandVNet",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "10.0.0.0/16"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "AppSubnet",
+            "properties": {
+              "addressPrefix": "10.0.1.0/24"
+            }
+          },
+          {
+            "name": "StorageSubnet",
+            "properties": {
+              "addressPrefix": "10.0.2.0/24",
+              "serviceEndpoints": [
+                {
+                  "service": "Microsoft.Storage"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }, 
+    {
+    "type": "Microsoft.Network/networkSecurityGroups",
+    "apiVersion": "2020-06-01",
+    "name": "RandNSG", 
+    "location": "[resourceGroup().location]",
+    "properties": {
+        "securityRules": [
+            {
+                "name": "AllowStorageAccess", 
+                "properties": {
+                    "priority": 100, 
+                    "direction": "Inbound",
+                    "access": "Allow",
+                    "protocol": "*",
+                    "sourceAddressPrefix": "10.0.1.0/24",
+                    "sourcePortRange": "*", 
+                    "destinationAddressPrefix": "10.0.2.0/24",
+                    "destinationPortRange": "443"
+                }
+                }
+        ]
+    }
+    },
+{
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2020-06-01",
+      "name": "RandVM1NIC",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', 'RandVNet')]"
+      ],
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', 'RandVNet', 'AppSubnet')]"
+              },
+              "privateIPAllocationMethod": "Dynamic"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2020-06-01",
+      "name": "RandVM1",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', 'RandVM1NIC')]"
+      ],
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "Standard_DS1_v2"
+        },
+        "osProfile": {
+          "computerName": "RandVM1",
+          "adminUsername": "azureuser",
+          "linuxConfiguration": {
+            "disablePasswordAuthentication": true,
+            "ssh": {
+              "publicKeys": [
+                {
+                  "path": "/home/azureuser/.ssh/authorized_keys",
+                  "keyData": "[parameters('sshPublicKey')]"
+                }
+              ]
+            }
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', 'RandVM1NIC')]"
+            }
+          ]
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "Canonical",
+            "offer": "UbuntuServer",
+            "sku": "18.04-LTS",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage"
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-04-01",
+      "name": "umrandstorageaccountum",
+      "location": "[resourceGroup().location]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "networkAcls": {
+          "bypass": "AzureServices",
+          "virtualNetworkRules": [
+            {
+              "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', 'RandVNet', 'StorageSubnet')]"
+            }
+          ],
+          "defaultAction": "Deny",
+          "serviceEndpoints": [
+                {
+                    "service": "Microsoft.Storage",
+                    "locations": [
+                        "[resourceGroup().location]"
+                    ]
+                }
+            ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2023-04-01",
+      "name": "[concat('umrandstorageaccountum/default/', 'images')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', 'umrandstorageaccountum')]"
+      ],
+      "properties": {
+        "publicAccess": "None" // Ensure the container is not publicly accessible
+      }
+    },
+    {
+        "type": "Microsoft.Authorization/roleAssignments",
+        "apiVersion": "2022-04-01",
+        "name": "[guid('RandEntRoleAssignment')]",
+        "properties": {
+            "roleDefinitionId": "[concat('/providers/Microsoft.Authorization/roleDefinitions/', parameters('roleDefinitionId'))]",
+            "principalId": "[parameters('operationsTeamPrincipalId')]",
+            "scope": "[resourceGroup().id]"
+        }
+    }
+
+    ],
+    "parameters": {
+        "sshPublicKey": {
+            "type": "string",
+            "metadata": {
+                "description": "SSH public key for VM authentication"
+            }
+        }, 
+         "roleDefinitionId": {
+            "type": "string",
+            "defaultValue": "bd80684d-2f5f-4130-892a-0955546282de",
+            "metadata": {
+                "description": "Role definition ID for the role assignment"
+            }
+        },
+        "operationsTeamPrincipalId": {
+            "type": "string",
+            "defaultValue": "c1aa5f88-ce88-4e25-9cf6-e1e3489d233a", // Correct format without extra quotes
+            "metadata": {
+                "description": "Principal ID of the operations team for RBAC"
+            }
+        }
+    }
+  }
